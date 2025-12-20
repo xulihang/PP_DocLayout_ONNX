@@ -1,0 +1,8 @@
+<component name="ArtifactManager">
+  <artifact type="jar" name="PPDocLayout:jar">
+    <output-path>$PROJECT_DIR$/out/artifacts/PPDocLayout_jar</output-path>
+    <root id="archive" name="PPDocLayout.jar">
+      <element id="module-output" name="PPDocLayout" />
+    </root>
+  </artifact>
+</component>
