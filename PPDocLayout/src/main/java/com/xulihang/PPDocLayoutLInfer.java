@@ -62,7 +62,7 @@ public class PPDocLayoutLInfer {
 
         // 获取输入名称
         Set<String> inputNames = session.getInputNames();
-        System.out.println("模型输入名称: " + inputNames);
+        //System.out.println("模型输入名称: " + inputNames);
     }
 
     private List<String> getDefaultLabels() {
@@ -244,13 +244,13 @@ public class PPDocLayoutLInfer {
                 String outputName = entry.getKey();
                 OnnxValue value = entry.getValue();
 
-                System.out.println("输出名称: " + outputName);
-                System.out.println("输出类型: " + value.getType().toString());
+                //System.out.println("输出名称: " + outputName);
+                //System.out.println("输出类型: " + value.getType().toString());
 
                 if (value instanceof OnnxTensor) {
                     OnnxTensor tensor = (OnnxTensor) value;
                     long[] shape = tensor.getInfo().getShape();
-                    System.out.println("输出形状: " + Arrays.toString(shape));
+                    //System.out.println("输出形状: " + Arrays.toString(shape));
 
                     // 根据形状处理不同类型的输出
                     Object tensorValue = tensor.getValue();
@@ -258,8 +258,8 @@ public class PPDocLayoutLInfer {
                     if (tensorValue instanceof float[][][]) {
                         // 形状可能是 [1, n, 6] 或类似
                         float[][][] data3d = (float[][][]) tensorValue;
-                        System.out.println("检测到3D浮点数组，维度: " + data3d.length + "x" +
-                                data3d[0].length + "x" + data3d[0][0].length);
+                        //System.out.println("检测到3D浮点数组，维度: " + data3d.length + "x" +
+                        //        data3d[0].length + "x" + data3d[0][0].length);
 
                         for (float[][] batch : data3d) {
                             for (float[] box : batch) {
@@ -272,8 +272,8 @@ public class PPDocLayoutLInfer {
                     else if (tensorValue instanceof float[][]) {
                         // 形状可能是 [n, 6]
                         float[][] data2d = (float[][]) tensorValue;
-                        System.out.println("检测到2D浮点数组，维度: " + data2d.length + "x" +
-                                (data2d.length > 0 ? data2d[0].length : 0));
+                        //System.out.println("检测到2D浮点数组，维度: " + data2d.length + "x" +
+                        //        (data2d.length > 0 ? data2d[0].length : 0));
 
                         for (float[] box : data2d) {
                             if (box.length >= 6) {
@@ -284,7 +284,7 @@ public class PPDocLayoutLInfer {
                     else if (tensorValue instanceof float[]) {
                         // 形状可能是 [n*6]
                         float[] data1d = (float[]) tensorValue;
-                        System.out.println("检测到1D浮点数组，长度: " + data1d.length);
+                        //System.out.println("检测到1D浮点数组，长度: " + data1d.length);
 
                         // 每6个元素是一个检测框
                         for (int i = 0; i + 6 <= data1d.length; i += 6) {
@@ -295,8 +295,8 @@ public class PPDocLayoutLInfer {
                     else if (tensorValue instanceof long[][]) {
                         // 可能是整数类型的输出
                         long[][] data2d = (long[][]) tensorValue;
-                        System.out.println("检测到2D长整型数组，维度: " + data2d.length + "x" +
-                                (data2d.length > 0 ? data2d[0].length : 0));
+                        //System.out.println("检测到2D长整型数组，维度: " + data2d.length + "x" +
+                        //        (data2d.length > 0 ? data2d[0].length : 0));
 
                         // 转换为浮点数组
                         for (long[] boxLong : data2d) {
@@ -310,12 +310,12 @@ public class PPDocLayoutLInfer {
                         }
                     }
                     else {
-                        System.out.println("未知输出类型: " + tensorValue.getClass().getName());
+                        //System.out.println("未知输出类型: " + tensorValue.getClass().getName());
                     }
                 }
             }
 
-            System.out.println("提取到的总检测框数量: " + allBoxes.size());
+            //System.out.println("提取到的总检测框数量: " + allBoxes.size());
 
             if (allBoxes.isEmpty()) {
                 return results;
@@ -329,7 +329,7 @@ public class PPDocLayoutLInfer {
                 }
             }
 
-            System.out.println("置信度过滤后检测框数量: " + filteredBoxes.size());
+            //System.out.println("置信度过滤后检测框数量: " + filteredBoxes.size());
 
             if (filteredBoxes.isEmpty()) {
                 return results;
@@ -340,7 +340,7 @@ public class PPDocLayoutLInfer {
 
             // NMS处理
             List<Integer> selectedIndices = nms(boxesArray, 0.6f, 0.98f);
-            System.out.println("NMS后检测框数量: " + selectedIndices.size());
+            //System.out.println("NMS后检测框数量: " + selectedIndices.size());
 
             // 缩放因子
             float scaleX = w / (float)inputSize.width;
@@ -358,8 +358,8 @@ public class PPDocLayoutLInfer {
                 float ymax = box[5];
 
                 // 调试输出原始坐标
-                System.out.println(String.format("原始检测框: clsId=%.0f, conf=%.3f, [%.1f,%.1f,%.1f,%.1f]",
-                        clsId, confidence, xmin, ymin, xmax, ymax));
+                //System.out.println(String.format("原始检测框: clsId=%.0f, conf=%.3f, [%.1f,%.1f,%.1f,%.1f]",
+                //        clsId, confidence, xmin, ymin, xmax, ymax));
 
                 // 坐标缩放
                 xmin = xmin / scaleX;
@@ -375,7 +375,7 @@ public class PPDocLayoutLInfer {
 
                 // 跳过无效框
                 if (xmax <= xmin || ymax <= ymin) {
-                    System.out.println("跳过无效框: " + xmin + "," + ymin + "," + xmax + "," + ymax);
+                    //System.out.println("跳过无效框: " + xmin + "," + ymin + "," + xmax + "," + ymax);
                     continue;
                 }
 
@@ -395,8 +395,8 @@ public class PPDocLayoutLInfer {
                 results.add(result);
 
                 // 调试输出处理后的坐标
-                System.out.println(String.format("处理后: %s [%.1f,%.1f,%.1f,%.1f]",
-                        categoryCn, xmin, ymin, xmax, ymax));
+                //System.out.println(String.format("处理后: %s [%.1f,%.1f,%.1f,%.1f]",
+                 //       categoryCn, xmin, ymin, xmax, ymax));
             }
 
         } catch (Exception e) {
@@ -405,14 +405,14 @@ public class PPDocLayoutLInfer {
 
             // 尝试直接获取原始输出数据
             try {
-                System.out.println("尝试直接获取输出数据...");
+                //System.out.println("尝试直接获取输出数据...");
                 for (Map.Entry<String, OnnxValue> entry : outputs) {
                     OnnxValue value = entry.getValue();
                     if (value instanceof OnnxTensor) {
                         OnnxTensor tensor = (OnnxTensor) value;
                         Object rawValue = tensor.getValue();
-                        System.out.println("原始值类型: " + rawValue.getClass().getName());
-                        System.out.println("原始值: " + rawValue);
+                        //System.out.println("原始值类型: " + rawValue.getClass().getName());
+                        //System.out.println("原始值: " + rawValue);
                     }
                 }
             } catch (Exception ex) {
@@ -420,7 +420,7 @@ public class PPDocLayoutLInfer {
             }
         }
 
-        System.out.println("最终检测结果数量: " + results.size());
+        //System.out.println("最终检测结果数量: " + results.size());
         return results;
     }
     /**
@@ -563,55 +563,6 @@ public class PPDocLayoutLInfer {
             return String.format("检测结果{类别='%s'(%s), 置信度=%.2f%%, 坐标=[%.1f, %.1f, %.1f, %.1f]}",
                     categoryCn, category, confidence * 100,
                     bbox[0], bbox[1], bbox[2], bbox[3]);
-        }
-    }
-
-    /**
-     * 使用示例
-     */
-    public static void main(String[] args) {
-        // 加载OpenCV本地库
-        System.loadLibrary(Core.NATIVE_LIBRARY_NAME);
-
-        try {
-            // 初始化模型
-            String modelPath = "path/to/your/model.onnx";
-            String imagePath = "path/to/your/image.jpg";
-
-            PPDocLayoutLInfer inferencer = new PPDocLayoutLInfer(modelPath);
-
-            // 读取图像
-            Mat image = Imgcodecs.imread(imagePath);
-            if (image.empty()) {
-                System.out.println("无法读取图像: " + imagePath);
-                return;
-            }
-
-            // 执行推理
-            System.out.println("正在分析图像...");
-            List<DetectionResult> results = inferencer.infer(image, 0.3f);
-
-            // 输出结果
-            System.out.println("\n检测结果 (共" + results.size() + "个区域):");
-            System.out.println("=".repeat(60));
-
-            for (int i = 0; i < results.size(); i++) {
-                DetectionResult result = results.get(i);
-                System.out.println("区域 " + (i + 1) + ":");
-                System.out.println("  类别: " + result.getCategoryCn() + " (" + result.getCategory() + ")");
-                System.out.println("  置信度: " + String.format("%.2f", result.getConfidence() * 100) + "%");
-                System.out.println("  坐标: [" +
-                        String.format("%.1f, %.1f, %.1f, %.1f",
-                                result.getBbox()[0], result.getBbox()[1],
-                                result.getBbox()[2], result.getBbox()[3]) + "]");
-                System.out.println("-".repeat(60));
-            }
-
-            // 释放资源
-            image.release();
-
-        } catch (Exception e) {
-            e.printStackTrace();
         }
     }
 }

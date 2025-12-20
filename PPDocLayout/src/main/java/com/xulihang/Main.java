@@ -43,7 +43,7 @@ public class Main {
                 Imgproc.rectangle(image, pt1, pt2, new Scalar(0, 255, 0), 2);
 
                 // 添加标签
-                String label = result.getCategoryCn() + " " +
+                String label = result.getCategory() + " " +
                         String.format("%.1f", result.getConfidence() * 100) + "%";
                 Imgproc.putText(image, label,
                         new Point(bbox[0], bbox[1] - 5),
