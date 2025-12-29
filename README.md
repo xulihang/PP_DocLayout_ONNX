@@ -5,7 +5,7 @@ PaddlePaddle's DocLayout using ONNX
 Model link: https://www.modelscope.cn/models/RapidAI/RapidDoc/resolve/v1.0.0/layout/PP-DocLayout_plus-L/pp_doclayout_plus_l.onnx
 
 
-How to use in ImageTrans:
+How to use in [ImageTrans](https://www.basiccat.org/zh/imagetrans/):
 
 1. Create a folder named `ppdoclayout` under the `models` folder in ImageTrans's root.
 
