@@ -14,17 +14,14 @@ public class Main {
         test();
     }
 
-    private static  void test(){
+    private static void test() {
         String modelPath = "PP-DocLayoutV3.onnx";
         String imagePath = "C9-2.pdf-001.jpg";
-        // 加载OpenCV本地库
         System.loadLibrary(Core.NATIVE_LIBRARY_NAME);
 
         try {
-            // 初始化检测器
             PPDocLayoutV3Infer detector = new PPDocLayoutV3Infer(modelPath);
 
-            // 读取图像
             Mat image = Imgcodecs.imread(imagePath);
             if (image.empty()) {
                 System.out.println("无法读取图像: " + imagePath);
@@ -32,32 +29,14 @@ public class Main {
             }
 
             // 执行推理
-            List<PPDocLayoutV3Infer.DetectionResult> results = detector.detect(image, 0.6f);
+            List<PPDocLayoutV3Infer.DetectionResult> results = detector.detect(image, 0.3f);
+            System.out.println("找到 " + results.size() + " 个区域");
 
-            // 处理结果
-            System.out.println("找到 " + results.size() + " 个文本区域");
+            // 绘制（带阅读顺序编号）
+            Mat annotated = detector.drawOnImage(image, results);
 
-            // 可以在图像上绘制边界框
-            for (PPDocLayoutV3Infer.DetectionResult result : results) {
-                float[] bbox = result.getBbox();
-                Point pt1 = new Point(bbox[0], bbox[1]);
-                Point pt2 = new Point(bbox[2], bbox[3]);
-
-                // 绘制矩形框
-                Imgproc.rectangle(image, pt1, pt2, new Scalar(0, 255, 0), 2);
-
-                // 添加标签
-                String label = result.getCategory() + " " +
-                        String.format("%.1f", result.getConfidence() * 100) + "%";
-                Imgproc.putText(image, label,
-                        new Point(bbox[0], bbox[1] - 5),
-                        Imgproc.FONT_HERSHEY_SIMPLEX, 0.5,
-                        new Scalar(0, 255, 0), 1);
-            }
-
-            // 保存结果
-            String outputPath = imagePath.replace(".jpg", "_result.png");
-            Imgcodecs.imwrite(outputPath, image);
+            String outputPath = imagePath.replace(".jpg", "_result.jpg");
+            Imgcodecs.imwrite(outputPath, annotated);
             System.out.println("结果已保存到: " + outputPath);
 
         } catch (Exception e) {

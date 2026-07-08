@@ -172,21 +172,15 @@ public class PPDocLayoutV3Infer {
         return orderSeq;
     }
 
-    // ── NMS (after order decoding) ──────────────────────────────────────
+    // ── NMS on raw query data ───────────────────────────────────────────
 
-    private List<DetectionResult> nms(List<DetectionResult> results, float iouThresh) {
-        if (results.isEmpty()) return results;
-
-        int n = results.size();
-        float[][] boxes = new float[n][4];
-        float[] scores = new float[n];
-        int[] clsIds = new int[n];
-        for (int i = 0; i < n; i++) {
-            DetectionResult r = results.get(i);
-            System.arraycopy(r.bbox, 0, boxes[i], 0, 4);
-            scores[i] = r.confidence;
-            clsIds[i] = r.clsId;
-        }
+    /**
+     * NMS on raw query boxes before order decoding.
+     * Returns indices of surviving queries (indices into the filtered keep array).
+     */
+    private int[] nmsOnQueries(float[][] absBoxes, float[] scores, int[] clsIds, float iouThresh) {
+        int n = absBoxes.length;
+        if (n == 0) return new int[0];
 
         // Sort by score descending
         Integer[] order = new Integer[n];
@@ -194,6 +188,7 @@ public class PPDocLayoutV3Infer {
         Arrays.sort(order, (a, b) -> Float.compare(scores[b], scores[a]));
 
         boolean[] suppressed = new boolean[n];
+        int keepCount = 0;
 
         for (int idx = 0; idx < n; idx++) {
             int best = order[idx];
@@ -204,18 +199,18 @@ public class PPDocLayoutV3Infer {
                 if (suppressed[other]) continue;
                 if (clsIds[best] != clsIds[other]) continue;
 
-                float iou = computeIoU(boxes[best], boxes[other]);
+                float iou = computeIoU(absBoxes[best], absBoxes[other]);
                 if (iou >= iouThresh) {
                     suppressed[other] = true;
                 }
             }
         }
 
-        List<DetectionResult> kept = new ArrayList<>();
+        int[] kept = new int[n];
         for (int i = 0; i < n; i++) {
-            if (!suppressed[i]) kept.add(results.get(i));
+            if (!suppressed[i]) kept[keepCount++] = i;
         }
-        return kept;
+        return Arrays.copyOf(kept, keepCount);
     }
 
     private float computeIoU(float[] a, float[] b) {
@@ -235,12 +230,11 @@ public class PPDocLayoutV3Infer {
             float[][] logits, float[][] predBoxes, float[][] orderLogits,
             int oriW, int oriH, float confThres) {
 
-        // logits: (300, 25), softmax per row
+        // Compute class scores via softmax
         int n = logits.length;
         float[] scores = new float[n];
         int[] classIds = new int[n];
         for (int i = 0; i < n; i++) {
-            // Softmax: find max for numerical stability
             float maxLogit = Float.NEGATIVE_INFINITY;
             for (int j = 0; j < NUM_CLASSES; j++) {
                 if (logits[i][j] > maxLogit) maxLogit = logits[i][j];
@@ -264,40 +258,59 @@ public class PPDocLayoutV3Infer {
             classIds[i] = bestCls;
         }
 
-        // Filter by confidence
+        // ── 1. Filter by confidence ──
         List<Integer> keepList = new ArrayList<>();
         for (int i = 0; i < n; i++) {
-            if (scores[i] >= confThres) {
-                keepList.add(i);
-            }
+            if (scores[i] >= confThres) keepList.add(i);
         }
         if (keepList.isEmpty()) return new ArrayList<>();
 
         int[] keep = keepList.stream().mapToInt(i -> i).toArray();
+        int K = keep.length;
 
-        // 1. Decode reading order on all kept queries
-        int[] orderSeq = decodeReadingOrder(orderLogits, keep);
-
-        // 2. Build result list
-        List<DetectionResult> results = new ArrayList<>();
-        for (int k = 0; k < keep.length; k++) {
+        // Build filtered arrays
+        float[] keepScores = new float[K];
+        int[] keepClsIds = new int[K];
+        float[][] absBoxes = new float[K][4];
+        for (int k = 0; k < K; k++) {
             int i = keep[k];
-            float cx = predBoxes[i][0];
-            float cy = predBoxes[i][1];
-            float w = predBoxes[i][2];
-            float h = predBoxes[i][3];
+            keepScores[k] = scores[i];
+            keepClsIds[k] = classIds[i];
+            float cx = predBoxes[i][0], cy = predBoxes[i][1];
+            float w = predBoxes[i][2], h = predBoxes[i][3];
+            absBoxes[k][0] = clamp((int) ((cx - w / 2) * oriW), 0, oriW);
+            absBoxes[k][1] = clamp((int) ((cy - h / 2) * oriH), 0, oriH);
+            absBoxes[k][2] = clamp((int) ((cx + w / 2) * oriW), 0, oriW);
+            absBoxes[k][3] = clamp((int) ((cy + h / 2) * oriH), 0, oriH);
+        }
 
-            int x1 = clamp((int) ((cx - w / 2) * oriW), 0, oriW);
-            int y1 = clamp((int) ((cy - h / 2) * oriH), 0, oriH);
-            int x2 = clamp((int) ((cx + w / 2) * oriW), 0, oriW);
-            int y2 = clamp((int) ((cy + h / 2) * oriH), 0, oriH);
+        // ── 2. NMS (dedup BEFORE order decoding) ──
+        int[] nmsIndices = nmsOnQueries(absBoxes, keepScores, keepClsIds, 0.5f);
 
-            if (x2 <= x1 || y2 <= y1) continue;
+        // Apply NMS: keep only surviving queries
+        int[] finalKeep = new int[nmsIndices.length];
+        float[][] finalBoxes = new float[nmsIndices.length][4];
+        for (int k = 0; k < nmsIndices.length; k++) {
+            int idx = nmsIndices[k];
+            finalKeep[k] = keep[idx];
+            finalBoxes[k] = absBoxes[idx];
+        }
+
+        // ── 3. Decode reading order on surviving queries ──
+        int[] orderSeq = decodeReadingOrder(orderLogits, finalKeep);
+
+        // ── 4. Build results ──
+        List<DetectionResult> results = new ArrayList<>();
+        for (int k = 0; k < finalKeep.length; k++) {
+            int i = finalKeep[k];
+            float[] box = finalBoxes[k];
+
+            if (box[2] <= box[0] || box[3] <= box[1]) continue;
 
             String category = classIds[i] < LABELS.length ? LABELS[classIds[i]] : "cls_" + classIds[i];
 
             DetectionResult r = new DetectionResult();
-            r.bbox = new float[]{x1, y1, x2, y2};
+            r.bbox = box;
             r.confidence = scores[i];
             r.clsId = classIds[i];
             r.category = category;
@@ -305,12 +318,8 @@ public class PPDocLayoutV3Infer {
             results.add(r);
         }
 
-        // 3. NMS after order decoding
-        results = nms(results, 0.5f);
-
-        // 4. Sort by order
+        // Sort by reading order
         results.sort(Comparator.comparingInt(r -> r.order));
-
         return results;
     }
 
