@@ -11,12 +11,12 @@ import java.util.List;
 
 public class Main {
     public static void main(String[] args) {
-        test2();
+        test();
     }
 
     private static  void test(){
-        String modelPath = "pp_doc_layoutv3.onnx";
-        String imagePath = "DynamicWebTWAIN.jpg";
+        String modelPath = "PP-DocLayoutV3.onnx";
+        String imagePath = "C9-2.pdf-001.jpg";
         // 加载OpenCV本地库
         System.loadLibrary(Core.NATIVE_LIBRARY_NAME);
 
@@ -32,13 +32,13 @@ public class Main {
             }
 
             // 执行推理
-            List<PPDocLayoutLInfer.DetectionResult> results = detector.detect(image, 0.3f);
+            List<PPDocLayoutV3Infer.DetectionResult> results = detector.detect(image, 0.6f);
 
             // 处理结果
             System.out.println("找到 " + results.size() + " 个文本区域");
 
             // 可以在图像上绘制边界框
-            for (PPDocLayoutLInfer.DetectionResult result : results) {
+            for (PPDocLayoutV3Infer.DetectionResult result : results) {
                 float[] bbox = result.getBbox();
                 Point pt1 = new Point(bbox[0], bbox[1]);
                 Point pt2 = new Point(bbox[2], bbox[3]);
@@ -56,7 +56,7 @@ public class Main {
             }
 
             // 保存结果
-            String outputPath = imagePath.replace(".png", "_result.png");
+            String outputPath = imagePath.replace(".jpg", "_result.png");
             Imgcodecs.imwrite(outputPath, image);
             System.out.println("结果已保存到: " + outputPath);
 
