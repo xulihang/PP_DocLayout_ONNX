@@ -11,8 +11,62 @@ import java.util.List;
 
 public class Main {
     public static void main(String[] args) {
+        test2();
+    }
+
+    private static  void test(){
+        String modelPath = "pp_doc_layoutv3.onnx";
+        String imagePath = "DynamicWebTWAIN.jpg";
+        // 加载OpenCV本地库
+        System.loadLibrary(Core.NATIVE_LIBRARY_NAME);
+
+        try {
+            // 初始化检测器
+            PPDocLayoutV3Infer detector = new PPDocLayoutV3Infer(modelPath);
+
+            // 读取图像
+            Mat image = Imgcodecs.imread(imagePath);
+            if (image.empty()) {
+                System.out.println("无法读取图像: " + imagePath);
+                return;
+            }
+
+            // 执行推理
+            List<PPDocLayoutLInfer.DetectionResult> results = detector.detect(image, 0.3f);
+
+            // 处理结果
+            System.out.println("找到 " + results.size() + " 个文本区域");
+
+            // 可以在图像上绘制边界框
+            for (PPDocLayoutLInfer.DetectionResult result : results) {
+                float[] bbox = result.getBbox();
+                Point pt1 = new Point(bbox[0], bbox[1]);
+                Point pt2 = new Point(bbox[2], bbox[3]);
+
+                // 绘制矩形框
+                Imgproc.rectangle(image, pt1, pt2, new Scalar(0, 255, 0), 2);
+
+                // 添加标签
+                String label = result.getCategory() + " " +
+                        String.format("%.1f", result.getConfidence() * 100) + "%";
+                Imgproc.putText(image, label,
+                        new Point(bbox[0], bbox[1] - 5),
+                        Imgproc.FONT_HERSHEY_SIMPLEX, 0.5,
+                        new Scalar(0, 255, 0), 1);
+            }
+
+            // 保存结果
+            String outputPath = imagePath.replace(".png", "_result.png");
+            Imgcodecs.imwrite(outputPath, image);
+            System.out.println("结果已保存到: " + outputPath);
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+    private static void test2(){
         String modelPath = "pp_doclayout_plus_l.onnx";
-        String imagePath = "556.pdf-005.png";
+        String imagePath = "DynamicWebTWAIN.jpg";
         // 加载OpenCV本地库
         System.loadLibrary(Core.NATIVE_LIBRARY_NAME);
 
