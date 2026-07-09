@@ -151,13 +151,8 @@ def inference(session, pixel_values):
 
 
 # ── Postprocessing ────────────────────────────────────────────────────────
-def softmax(x, axis=-1):
-    e = np.exp(x - np.max(x, axis=axis, keepdims=True))
-    return e / np.sum(e, axis=axis, keepdims=True)
-
 def sigmoid(x):
     return 1 / (1 + np.exp(-x))
-
 
 
 def decode_reading_order(order_logits, valid_indices):
@@ -201,48 +196,34 @@ def decode_reading_order(order_logits, valid_indices):
     return order_seq
 
 
-def nms_results(results, iou_thresh=0.5):
+def refine_order_by_layout(results):
     """
-    NMS on result dicts. Suppresses lower-score boxes of the same class
-    that overlap too much. Preserves reading order of surviving boxes.
+    Refine reading order using spatial layout (top-to-bottom, left-to-right).
+    The model's pairwise voting gives a rough order; this corrects it with
+    geometric constraints that match how humans read documents.
     """
-    if len(results) == 0:
-        return results
+    N = len(results)
+    if N <= 1:
+        return
 
-    # Convert bbox to array
-    boxes = np.array([r["bbox"] for r in results], dtype=np.float32)
-    scores = np.array([r["score"] for r in results])
-    class_ids = np.array([r["cls_id"] for r in results])
+    # Compute average box height for line grouping tolerance
+    heights = [r["bbox"][3] - r["bbox"][1] for r in results]
+    avg_h = sum(heights) / N
+    line_tolerance = avg_h * 0.5
 
-    order = np.argsort(scores)[::-1]
-    kept_indices = set(range(len(results)))
-    suppressed = set()
+    def sort_key(r):
+        bbox = r["bbox"]
+        y_center = (bbox[1] + bbox[3]) / 2.0
+        x_center = (bbox[0] + bbox[2]) / 2.0
+        # Quantize y_center into "lines" using line_tolerance
+        line_idx = round(y_center / line_tolerance)
+        return (line_idx, x_center)
 
-    while len(order) > 0:
-        best = order[0]
-        order = order[1:]
-        if best in suppressed:
-            continue
-        if len(order) == 0:
-            break
+    results.sort(key=sort_key)
 
-        xx1 = np.maximum(boxes[best, 0], boxes[order, 0])
-        yy1 = np.maximum(boxes[best, 1], boxes[order, 1])
-        xx2 = np.minimum(boxes[best, 2], boxes[order, 2])
-        yy2 = np.minimum(boxes[best, 3], boxes[order, 3])
-        w = np.maximum(0, xx2 - xx1)
-        h = np.maximum(0, yy2 - yy1)
-        inter = w * h
-
-        area_best = max(0, (boxes[best, 2] - boxes[best, 0]) * (boxes[best, 3] - boxes[best, 1]))
-        areas = np.maximum(0, (boxes[order, 2] - boxes[order, 0]) * (boxes[order, 3] - boxes[order, 1]))
-        iou = inter / (area_best + areas - inter + 1e-6)
-
-        for j, o in enumerate(order):
-            if class_ids[o] == class_ids[best] and iou[j] >= iou_thresh:
-                suppressed.add(o)
-
-    return [r for i, r in enumerate(results) if i not in suppressed]
+    # Reassign sequential order numbers
+    for i, r in enumerate(results):
+        r["order"] = i
 
 
 def postprocess(logits, pred_boxes, order_logits, ori_w, ori_h, conf_thres=0.3):
@@ -251,11 +232,13 @@ def postprocess(logits, pred_boxes, order_logits, ori_w, ori_h, conf_thres=0.3):
 
     Returns list of dicts: {label, score, bbox, order}
     """
-    # logits: (1, 300, 25) -> scores via softmax
+    # logits: (1, 300, 25) -> scores via sigmoid (matches HF original: BCE per class)
     logits = logits[0]  # (300, 25)
-    probs = softmax(logits, axis=1)  # (300, 25)
-    scores = np.max(probs, axis=1)  # (300,)
-    class_ids = np.argmax(probs, axis=1)  # (300,)
+    # Use sigmoid (not softmax): PP-DocLayoutV3 is DETR-based, trained with
+    # sigmoid + binary cross-entropy — each class is independent.
+    scores_per_class = sigmoid(logits)  # (300, 25)
+    scores = np.max(scores_per_class, axis=1)  # (300,)
+    class_ids = np.argmax(scores_per_class, axis=1)  # (300,)
 
     # pred_boxes: (1, 300, 4) in (cx, cy, w, h) normalized to [0,1]
     boxes = pred_boxes[0]  # (300, 4)
@@ -299,8 +282,8 @@ def postprocess(logits, pred_boxes, order_logits, ori_w, ori_h, conf_thres=0.3):
             "order": int(ord_pos),
         })
 
-    # 3. NMS AFTER order decoding — suppresses dupes, keeps order intact
-    results = nms_results(results, iou_thresh=0.5)
+    # 3. Refine reading order with spatial layout (no NMS — DETR queries are naturally non-overlapping)
+    refine_order_by_layout(results)
 
     # 4. Sort by reading order
     results.sort(key=lambda r: r["order"])

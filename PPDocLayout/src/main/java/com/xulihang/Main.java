@@ -16,7 +16,7 @@ public class Main {
 
     private static void test() {
         String modelPath = "PP-DocLayoutV3.onnx";
-        String imagePath = "capture001.jpg";
+        String imagePath = "001.png";
         System.loadLibrary(Core.NATIVE_LIBRARY_NAME);
 
         try {
@@ -29,7 +29,7 @@ public class Main {
             }
 
             // 执行推理
-            List<PPDocLayoutV3Infer.DetectionResult> results = detector.detect(image, 0.6f);
+            List<PPDocLayoutV3Infer.DetectionResult> results = detector.detect(image, 0.3f);
             System.out.println("找到 " + results.size() + " 个区域");
             for (PPDocLayoutV3Infer.DetectionResult det : results) {
                 System.out.println(det.order);

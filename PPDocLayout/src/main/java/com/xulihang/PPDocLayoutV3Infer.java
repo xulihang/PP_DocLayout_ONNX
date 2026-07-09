@@ -184,56 +184,54 @@ public class PPDocLayoutV3Infer {
         return orderSeq;
     }
 
-    // ── NMS on raw query data ───────────────────────────────────────────
+    // ── Spatial reading order refinement ────────────────────────────────
 
     /**
-     * NMS on raw query boxes before order decoding.
-     * Returns indices of surviving queries (indices into the filtered keep array).
+     * Refine reading order using spatial layout (top-to-bottom, left-to-right).
+     * The model's pairwise voting gives a rough order; this corrects it with
+     * geometric constraints that match how humans read documents.
+     *
+     * Algorithm:
+     *   1. Compute average box height as the "same line" tolerance
+     *   2. Sort all boxes by y-center (top to bottom)
+     *   3. Group boxes that are within tolerance of each other into "lines"
+     *   4. Within each line, sort by x-center (left to right)
+     *   5. Reassign sequential order numbers
      */
-    private int[] nmsOnQueries(float[][] absBoxes, float[] scores, int[] clsIds, float iouThresh) {
-        int n = absBoxes.length;
-        if (n == 0) return new int[0];
+    private void refineOrderByLayout(List<DetectionResult> results) {
+        int N = results.size();
+        if (N <= 1) return;
 
-        // Sort by score descending
-        Integer[] order = new Integer[n];
-        for (int i = 0; i < n; i++) order[i] = i;
-        Arrays.sort(order, (a, b) -> Float.compare(scores[b], scores[a]));
+        // Compute average box height for line grouping tolerance (50% of avg height)
+        float totalH = 0;
+        for (DetectionResult r : results) {
+            totalH += r.bbox[3] - r.bbox[1];
+        }
+        float avgH = totalH / N;
+        float lineTolerance = avgH * 0.5f;
 
-        boolean[] suppressed = new boolean[n];
-        int keepCount = 0;
-
-        for (int idx = 0; idx < n; idx++) {
-            int best = order[idx];
-            if (suppressed[best]) continue;
-
-            for (int j = idx + 1; j < n; j++) {
-                int other = order[j];
-                if (suppressed[other]) continue;
-                if (clsIds[best] != clsIds[other]) continue;
-
-                float iou = computeIoU(absBoxes[best], absBoxes[other]);
-                if (iou >= iouThresh) {
-                    suppressed[other] = true;
-                }
+        // Sort by y-center (top to bottom), then by x-center (left to right)
+        List<DetectionResult> sorted = new ArrayList<>(results);
+        sorted.sort((a, b) -> {
+            float ya = (a.bbox[1] + a.bbox[3]) / 2f;
+            float yb = (b.bbox[1] + b.bbox[3]) / 2f;
+            if (Math.abs(ya - yb) > lineTolerance) {
+                return Float.compare(ya, yb);
             }
-        }
+            // Same line: left to right
+            float xa = (a.bbox[0] + a.bbox[2]) / 2f;
+            float xb = (b.bbox[0] + b.bbox[2]) / 2f;
+            if (Math.abs(xa - xb) > avgH * 0.3f) {
+                return Float.compare(xa, xb);
+            }
+            // Very close boxes: prefer model's original order
+            return Integer.compare(a.order, b.order);
+        });
 
-        int[] kept = new int[n];
-        for (int i = 0; i < n; i++) {
-            if (!suppressed[i]) kept[keepCount++] = i;
+        // Reassign sequential order numbers
+        for (int i = 0; i < N; i++) {
+            sorted.get(i).order = i;
         }
-        return Arrays.copyOf(kept, keepCount);
-    }
-
-    private float computeIoU(float[] a, float[] b) {
-        float xx1 = Math.max(a[0], b[0]);
-        float yy1 = Math.max(a[1], b[1]);
-        float xx2 = Math.min(a[2], b[2]);
-        float yy2 = Math.min(a[3], b[3]);
-        float inter = Math.max(0, xx2 - xx1) * Math.max(0, yy2 - yy1);
-        float areaA = Math.max(0, (a[2] - a[0]) * (a[3] - a[1]));
-        float areaB = Math.max(0, (b[2] - b[0]) * (b[3] - b[1]));
-        return inter / (areaA + areaB - inter + 1e-6f);
     }
 
     // ── Postprocessing ──────────────────────────────────────────────────
@@ -242,31 +240,22 @@ public class PPDocLayoutV3Infer {
             float[][] logits, float[][] predBoxes, float[][] orderLogits,
             int oriW, int oriH, float confThres) {
 
-        // Compute class scores via softmax
+        // Compute class scores via sigmoid (matches HF original: binary classification per class)
+        // PP-DocLayoutV3 is DETR-based — trained with sigmoid + BCE, NOT softmax + CE.
         int n = logits.length;
         float[] scores = new float[n];
         int[] classIds = new int[n];
         for (int i = 0; i < n; i++) {
-            float maxLogit = Float.NEGATIVE_INFINITY;
-            for (int j = 0; j < NUM_CLASSES; j++) {
-                if (logits[i][j] > maxLogit) maxLogit = logits[i][j];
-            }
-            double sumExp = 0;
-            double[] exps = new double[NUM_CLASSES];
-            for (int j = 0; j < NUM_CLASSES; j++) {
-                exps[j] = Math.exp(logits[i][j] - maxLogit);
-                sumExp += exps[j];
-            }
-            float bestProb = 0;
+            float bestScore = 0;
             int bestCls = 0;
             for (int j = 0; j < NUM_CLASSES; j++) {
-                float prob = (float) (exps[j] / sumExp);
-                if (prob > bestProb) {
-                    bestProb = prob;
+                float score = (float) (1.0 / (1.0 + Math.exp(-logits[i][j])));
+                if (score > bestScore) {
+                    bestScore = score;
                     bestCls = j;
                 }
             }
-            scores[i] = bestProb;
+            scores[i] = bestScore;
             classIds[i] = bestCls;
         }
 
@@ -280,55 +269,36 @@ public class PPDocLayoutV3Infer {
         int[] keep = keepList.stream().mapToInt(i -> i).toArray();
         int K = keep.length;
 
-        // Build filtered arrays
-        float[] keepScores = new float[K];
-        int[] keepClsIds = new int[K];
-        float[][] absBoxes = new float[K][4];
+        // ── 2. Decode reading order on ALL kept queries (before any suppression) ──
+        int[] orderSeq = decodeReadingOrder(orderLogits, keep);
+
+        // ── 3. Build results (no NMS — DETR queries are naturally non-overlapping) ──
+        List<DetectionResult> results = new ArrayList<>();
         for (int k = 0; k < K; k++) {
             int i = keep[k];
-            keepScores[k] = scores[i];
-            keepClsIds[k] = classIds[i];
             float cx = predBoxes[i][0], cy = predBoxes[i][1];
             float w = predBoxes[i][2], h = predBoxes[i][3];
-            absBoxes[k][0] = clamp((int) ((cx - w / 2) * oriW), 0, oriW);
-            absBoxes[k][1] = clamp((int) ((cy - h / 2) * oriH), 0, oriH);
-            absBoxes[k][2] = clamp((int) ((cx + w / 2) * oriW), 0, oriW);
-            absBoxes[k][3] = clamp((int) ((cy + h / 2) * oriH), 0, oriH);
-        }
 
-        // ── 2. NMS (dedup BEFORE order decoding) ──
-        int[] nmsIndices = nmsOnQueries(absBoxes, keepScores, keepClsIds, 0.5f);
+            int x1 = clamp((int) ((cx - w / 2) * oriW), 0, oriW);
+            int y1 = clamp((int) ((cy - h / 2) * oriH), 0, oriH);
+            int x2 = clamp((int) ((cx + w / 2) * oriW), 0, oriW);
+            int y2 = clamp((int) ((cy + h / 2) * oriH), 0, oriH);
 
-        // Apply NMS: keep only surviving queries
-        int[] finalKeep = new int[nmsIndices.length];
-        float[][] finalBoxes = new float[nmsIndices.length][4];
-        for (int k = 0; k < nmsIndices.length; k++) {
-            int idx = nmsIndices[k];
-            finalKeep[k] = keep[idx];
-            finalBoxes[k] = absBoxes[idx];
-        }
-
-        // ── 3. Decode reading order on surviving queries ──
-        int[] orderSeq = decodeReadingOrder(orderLogits, finalKeep);
-
-        // ── 4. Build results ──
-        List<DetectionResult> results = new ArrayList<>();
-        for (int k = 0; k < finalKeep.length; k++) {
-            int i = finalKeep[k];
-            float[] box = finalBoxes[k];
-
-            if (box[2] <= box[0] || box[3] <= box[1]) continue;
+            if (x2 <= x1 || y2 <= y1) continue;
 
             String category = classIds[i] < LABELS.length ? LABELS[classIds[i]] : "cls_" + classIds[i];
 
             DetectionResult r = new DetectionResult();
-            r.bbox = box;
+            r.bbox = new float[]{x1, y1, x2, y2};
             r.confidence = scores[i];
             r.clsId = classIds[i];
             r.category = category;
             r.order = orderSeq[k];
             results.add(r);
         }
+
+        // ── 4. Refine reading order with spatial layout ──
+        //refineOrderByLayout(results);
 
         // Sort by reading order
         results.sort(Comparator.comparingInt(r -> r.order));
