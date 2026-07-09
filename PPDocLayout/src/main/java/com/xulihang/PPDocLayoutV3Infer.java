@@ -78,6 +78,15 @@ public class PPDocLayoutV3Infer {
         System.out.println(LABELS.length + " classes.");
     }
 
+    @Override
+    protected void finalize() throws Throwable {
+        if (session != null) {
+            session.close();
+            session = null;
+        }
+        super.finalize();
+    }
+
     // ── Preprocessing ───────────────────────────────────────────────────
 
     private float[] preprocess(Mat imageRgb) {
@@ -107,16 +116,19 @@ public class PPDocLayoutV3Infer {
 
     private OrtSession.Result runInference(float[] pixelValues) throws OrtException {
         OrtEnvironment env = OrtEnvironment.getEnvironment();
-        OnnxTensor inputTensor = OnnxTensor.createTensor(env,
-                FloatBuffer.wrap(pixelValues),
-                new long[]{1, 3, INPUT_SIZE, INPUT_SIZE});
-
         Map<String, OnnxTensor> inputs = new HashMap<>();
-        inputs.put("pixel_values", inputTensor);
-
-        OrtSession.Result outputs = session.run(inputs);
-        inputTensor.close();
-        return outputs;
+        try {
+            OnnxTensor inputTensor = OnnxTensor.createTensor(env,
+                    FloatBuffer.wrap(pixelValues),
+                    new long[]{1, 3, INPUT_SIZE, INPUT_SIZE});
+            inputs.put("pixel_values", inputTensor);
+            OrtSession.Result outputs = session.run(inputs);
+            return outputs;
+        } finally {
+            for (OnnxTensor tensor : inputs.values()) {
+                tensor.close();
+            }
+        }
     }
 
     // ── Reading order decoding (pairwise voting) ────────────────────────
@@ -348,28 +360,27 @@ public class PPDocLayoutV3Infer {
         // Preprocess
         float[] pixelValues = preprocess(imageRgb);
 
-        // Inference
-        OrtSession.Result outputs = runInference(pixelValues);
+        // Inference with try-with-resources for auto-close
+        try (OrtSession.Result outputs = runInference(pixelValues)) {
+            // Parse outputs
+            float[][] logits = parse2D(outputs, "logits");           // (300, 25)
+            float[][] predBoxes = parse2D(outputs, "pred_boxes");    // (300, 4)
+            float[][] orderLogits = parse2D(outputs, "order_logits"); // (300, 300)
 
-        // Parse outputs
-        float[][] logits = parse2D(outputs, "logits");           // (300, 25)
-        float[][] predBoxes = parse2D(outputs, "pred_boxes");    // (300, 4)
-        float[][] orderLogits = parse2D(outputs, "order_logits"); // (300, 300)
+            System.out.println("Raw queries: " + logits.length);
 
-        System.out.println("Raw queries: " + logits.length);
+            // Postprocess
+            List<DetectionResult> results = postprocess(logits, predBoxes, orderLogits, oriW, oriH, confThres);
 
-        // Postprocess
-        List<DetectionResult> results = postprocess(logits, predBoxes, orderLogits, oriW, oriH, confThres);
+            System.out.println("After filtering: " + results.size() + " detections");
+            for (DetectionResult r : results) {
+                System.out.printf("  #%d %s: %.1f%% @ (%d,%d)-(%d,%d)%n",
+                        r.order, r.category, r.confidence * 100,
+                        (int) r.bbox[0], (int) r.bbox[1], (int) r.bbox[2], (int) r.bbox[3]);
+            }
 
-        System.out.println("After filtering: " + results.size() + " detections");
-        for (DetectionResult r : results) {
-            System.out.printf("  #%d %s: %.1f%% @ (%d,%d)-(%d,%d)%n",
-                    r.order, r.category, r.confidence * 100,
-                    (int) r.bbox[0], (int) r.bbox[1], (int) r.bbox[2], (int) r.bbox[3]);
+            return results;
         }
-
-        outputs.close();
-        return results;
     }
 
     /**

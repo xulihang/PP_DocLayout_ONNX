@@ -16,7 +16,7 @@ public class Main {
 
     private static void test() {
         String modelPath = "PP-DocLayoutV3.onnx";
-        String imagePath = "C9-2.pdf-001.jpg";
+        String imagePath = "capture001.jpg";
         System.loadLibrary(Core.NATIVE_LIBRARY_NAME);
 
         try {
@@ -29,9 +29,11 @@ public class Main {
             }
 
             // 执行推理
-            List<PPDocLayoutV3Infer.DetectionResult> results = detector.detect(image, 0.3f);
+            List<PPDocLayoutV3Infer.DetectionResult> results = detector.detect(image, 0.6f);
             System.out.println("找到 " + results.size() + " 个区域");
-
+            for (PPDocLayoutV3Infer.DetectionResult det : results) {
+                System.out.println(det.order);
+            }
             // 绘制（带阅读顺序编号）
             Mat annotated = detector.drawOnImage(image, results);
 

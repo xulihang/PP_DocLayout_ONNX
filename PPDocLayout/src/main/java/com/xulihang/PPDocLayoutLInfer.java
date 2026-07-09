@@ -65,6 +65,15 @@ public class PPDocLayoutLInfer {
         //System.out.println("模型输入名称: " + inputNames);
     }
 
+    @Override
+    protected void finalize() throws Throwable {
+        if (session != null) {
+            session.close();
+            session = null;
+        }
+        super.finalize();
+    }
+
     private List<String> getDefaultLabels() {
         return Arrays.asList(
                 "paragraph_title", "image", "text", "number", "abstract",
@@ -166,11 +175,6 @@ public class PPDocLayoutLInfer {
         // 准备输入
         Map<String, OnnxTensor> inputs = new HashMap<>();
 
-        // 获取输入信息
-        NodeInfo inputInfo = session.getInputInfo().values().iterator().next();
-        TensorInfo tensorInfo = (TensorInfo) inputInfo.getInfo();
-        long[] inputShape = tensorInfo.getShape();
-
         // 重新调整输入形状为 [1, 3, 800, 800]
         long[] finalInputShape = new long[]{1, 3, (long)inputSize.height, (long)inputSize.width};
 
@@ -180,7 +184,6 @@ public class PPDocLayoutLInfer {
                 FloatBuffer.wrap(inputData),
                 finalInputShape
         );
-
         inputs.put(imageInputName, inputTensor);
 
         // 检查是否需要scale_factor输入
@@ -208,20 +211,19 @@ public class PPDocLayoutLInfer {
             inputs.put(imShapeInputName, imShapeTensor);
         }
 
-        // 执行推理
-        OrtSession.Result outputs = session.run(inputs);
-
-        // 后处理
-        List<DetectionResult> results = postprocess(outputs,
-                new int[]{imageMat.rows(), imageMat.cols()}, confThresh);
-
-        // 关闭输入张量
-        inputTensor.close();
-        for (OnnxTensor tensor : inputs.values()) {
-            tensor.close();
+        try {
+            // 执行推理，使用 try-with-resources 自动关闭 outputs
+            try (OrtSession.Result outputs = session.run(inputs)) {
+                List<DetectionResult> results = postprocess(outputs,
+                        new int[]{imageMat.rows(), imageMat.cols()}, confThresh);
+                return results;
+            }
+        } finally {
+            // 关闭所有输入张量
+            for (OnnxTensor tensor : inputs.values()) {
+                tensor.close();
+            }
         }
-
-        return results;
     }
 
     /**
