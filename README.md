@@ -5,7 +5,7 @@ PaddlePaddle's DocLayout using ONNX. PPDocLayout v3 and PPDocLayout L are suppor
 How to use in [ImageTrans](https://www.basiccat.org/zh/imagetrans/):
 
 * PPDocLayout V3
-
+   
    1. Create a folder named `ppdoclayout` under the `models` folder in ImageTrans's root.
    2. Create a new model.json file under the `ppdoclayout` folder.
 
@@ -23,6 +23,7 @@ How to use in [ImageTrans](https://www.basiccat.org/zh/imagetrans/):
        ```
        
    3. Download the model PP-DocLayoutV3.onnx and PP-DocLayoutV3.onnx.data from [huggingface](https://hf-mirror.com/Bei0001/PP-DocLayoutV3-ONNX/tree/main) and put the files under the `ppdoclayout` folder.
+   4. For macOS, you can use the mlx version which is faster: <https://github.com/xulihang/PP_DocLayout_MLX>
 
 * PPDocLayout L (This is model is old. Use it for ImageTrans before 6.0.1)
 
