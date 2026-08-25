@@ -41,3 +41,65 @@ How to use in [ImageTrans](https://www.basiccat.org/zh/imagetrans/):
        
    3. Download the model [pp_doclayout_plus_l.onnx](https://www.modelscope.cn/models/RapidAI/RapidDoc/resolve/v1.0.0/layout/PP-DocLayout_plus-L/pp_doclayout_plus_l.onnx) and put the file under the `ppdoclayout` folder.
 
+## Filter Results
+
+If you only need to use specific classes in ImageTrans, you can define them in JSON.
+
+`class_names_to_use` defines classes to use for balloon detection and `class_names_to_use_for_panel` defines classes to use for panel detection.
+
+Sample JSON:
+
+```json
+{
+  "width":800,
+  "height":800,
+  "use_ppdoclayout":true,
+  "confidence":0.3,
+  "resize":false,
+  "support_reading_order":true,
+  "ppdoclayout_version":"v3",
+  "class_names_to_use": [
+    "abstract",
+    "algorithm",
+    "aside_text",
+    "content",
+    "display_formula",
+    "document_title",
+    "figure_title",
+    "footer",
+    "footnote",
+    "formula_number",
+    "header",
+    "inline_formula",
+    "number",
+    "paragraph_title",
+    "reference",
+    "reference_content",
+    "text",
+    "vertical_text",
+    "vision_footnote"
+  ],
+  "class_names_to_use_for_panel": [
+    "abstract",
+    "algorithm",
+    "aside_text",
+    "content",
+    "display_formula",
+    "document_title",
+    "figure_title",
+    "footer",
+    "footnote",
+    "formula_number",
+    "header",
+    "inline_formula",
+    "number",
+    "paragraph_title",
+    "reference",
+    "reference_content",
+    "text",
+    "vertical_text",
+    "vision_footnote"
+  ],
+  "model":"PP-DocLayoutV3.onnx"
+}
+```
